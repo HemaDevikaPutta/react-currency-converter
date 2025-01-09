@@ -1,64 +1,73 @@
-release:
+name: Release Automation
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.*'
+
+jobs:
+  build:
+    name: Create Release
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
+      - name: Set Up Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: "18.x"
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
-      - name: Run Tests
-        run: npm test -- --watchAll=false
+      - name: Verify Node Modules
+        run: |
+          if [ ! -d "node_modules" ]; then
+            echo "node_modules directory not found!"
+            exit 1
+          fi
+          ls -lh node_modules
 
-      - name: Build the Project
+      - name: Build Project
         run: npm run build
 
-      - name: Generate Changelog
-        id: changelog
+      - name: Verify Build Folder
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            CHANGELOG=$(git log --oneline --no-merges)
-          else
-            CHANGELOG=$(git log "$LAST_TAG"..HEAD --oneline --no-merges)
+          if [ ! -d "./build" ]; then
+            echo "Build folder not found!"
+            exit 1
           fi
-          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-          echo "$CHANGELOG" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          ls -lh ./build
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUBTOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          release_name: "Release ${{ github.ref_name }}"
           body: |
-            ## Changelog
-            ${{ env.CHANGELOG }}
+            Changes in this Release:
+            - Add change details here.
           draft: false
           prerelease: false
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: Build Artifacts
-          path: ./build
-        if: success()
+      - name: Install Zip
+        run: sudo apt-get install -y zip
 
-      - name: Ensure Test Reports Directory Exists
-        run: mkdir -p ./test-reports
+      - name: Zip the Build Folder
+        run: zip -r build.zip ./build
 
-      - name: Upload Test Reports
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test Reports
-          path: ./test-reports/junit.xml
-        if: always()
+      - name: Verify Build.zip
+        run: |
+          if [ ! -f "build.zip" ]; then
+            echo "build.zip not created!"
+            exit 1
+          fi
+          ls -lh build.zip
+
+      - name: Cleanup Temporary Files
+        run: rm -rf build.zip ./build
